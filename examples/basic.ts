@@ -2,13 +2,17 @@ import { DB, Model, Column } from '../src/index';
 import type { ModelSchema } from '../src/index';
 
 async function schemaBasedExample() {
-  const db = new DB({
+  const db = await DB.open({
     dbName: 'myapp',
     sqlitePath: './data/myapp.sqlite',
+    autoRestore: true,
     s3Config: {
       bucket: 'my-app-data',
       region: 'us-east-1',
       prefix: 'driftdb',
+    },
+    logger: (event) => {
+      console.log(`[${event.scope}] ${event.message}`, event.metadata ?? '');
     },
     syncIntervalMs: 5_000,
     snapshotEveryNLogs: 500,

@@ -1,5 +1,12 @@
 import type Database from 'better-sqlite3';
-import type { DBConfig, SyncJob, SyncMetrics, UploadLogPayload, UploadSnapshotPayload } from '../types.js';
+import type {
+  DBConfig,
+  SyncJob,
+  SyncLogEvent,
+  SyncMetrics,
+  UploadLogPayload,
+  UploadSnapshotPayload,
+} from '../types.js';
 import { SyncQueue } from '../queue/queue.js';
 import { ChangeLog } from './change-log.js';
 import { SnapshotManager } from './snapshot-manager.js';
@@ -75,6 +82,7 @@ export class SyncEngine {
     if (this.timer) return;
     this.metrics.isRunning = true;
     this.queue.resetStuck();
+    this.log('info', 'Started background sync engine.');
 
     const intervalMs = this.config.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS;
     this.timer = setInterval(() => {
@@ -92,6 +100,7 @@ export class SyncEngine {
       this.timer = null;
     }
     this.metrics.isRunning = false;
+    this.log('info', 'Stopped background sync engine.');
   }
 
   async flush(): Promise<void> {
@@ -125,6 +134,9 @@ export class SyncEngine {
       await this.processQueue();
     } catch (err) {
       this.metrics.syncErrors++;
+      this.log('error', 'Sync tick failed.', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       this.isProcessing = false;
     }
@@ -151,6 +163,11 @@ export class SyncEngine {
         s3Key,
       };
       this.queue.enqueue('upload_log', { ...payload, batch });
+      this.log('info', 'Queued log batch for upload.', {
+        fromSequence: batch.fromSequence,
+        toSequence: batch.toSequence,
+        s3Key,
+      });
     }
   }
 
@@ -177,6 +194,11 @@ export class SyncEngine {
           if (job.type === 'upload_log') {
             const p = JSON.parse(job.payload) as UploadLogPayload & { batch: unknown };
             const batchBuffer = Buffer.from(JSON.stringify(p.batch), 'utf8');
+            this.log('info', 'Uploading log batch to S3.', {
+              fromSequence: p.fromSequence,
+              toSequence: p.toSequence,
+              s3Key: p.s3Key,
+            });
             await this.s3!.upload(p.s3Key, batchBuffer, uploadOptions);
             this.changeLog.markSynced(p.fromSequence, p.toSequence);
 
@@ -196,11 +218,19 @@ export class SyncEngine {
 
             this.metrics.totalSynced += (p.toSequence - p.fromSequence + 1);
             this.metrics.lastSyncAt = Date.now();
+            this.log('info', 'Uploaded log batch to S3.', {
+              fromSequence: p.fromSequence,
+              toSequence: p.toSequence,
+              s3Key: p.s3Key,
+            });
 
             await this.maybeSnapshot(latestSeq);
           } else if (job.type === 'upload_snapshot') {
             const p = JSON.parse(job.payload) as UploadSnapshotPayload;
             if (this.snapshotManager) {
+              this.log('info', 'Uploading snapshot to S3.', {
+                s3Key: p.s3Key,
+              });
               const { key, timestamp } = await this.snapshotManager.takeAndUpload();
               const manifest = await this.s3!.getManifest(this.config.dbName);
               await this.s3!.putManifest(this.config.dbName, {
@@ -212,6 +242,10 @@ export class SyncEngine {
                 updatedAt: Date.now(),
               });
               this.metrics.lastSnapshotAt = Date.now();
+              this.log('info', 'Uploaded snapshot to S3.', {
+                s3Key: key,
+                timestamp,
+              });
             }
             void p;
           }
@@ -224,6 +258,11 @@ export class SyncEngine {
       const msg = err instanceof Error ? err.message : String(err);
       this.queue.markFailed(job.id, msg);
       this.metrics.syncErrors++;
+      this.log('error', 'Sync job failed.', {
+        jobId: job.id,
+        jobType: job.type,
+        error: msg,
+      });
     }
   }
 
@@ -237,6 +276,10 @@ export class SyncEngine {
           dbPath: this.config.sqlitePath,
         };
         this.queue.enqueue('upload_snapshot', payload);
+        this.log('info', 'Queued snapshot upload.', {
+          s3Key: payload.s3Key,
+          timestamp: payload.timestamp,
+        });
       }
     }
   }
@@ -254,5 +297,24 @@ export class SyncEngine {
       updatedAt: Date.now(),
     });
     this.metrics.lastSnapshotAt = Date.now();
+    this.log('info', 'Triggered snapshot upload.', {
+      s3Key: key,
+      timestamp,
+    });
+  }
+
+  private log(
+    level: SyncLogEvent['level'],
+    message: string,
+    metadata?: Record<string, unknown>
+  ): void {
+    this.config.logger?.({
+      level,
+      scope: 'sync',
+      message,
+      dbName: this.config.dbName,
+      nodeId: this.nodeId,
+      metadata,
+    });
   }
 }

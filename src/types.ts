@@ -51,6 +51,17 @@ export interface EncryptionConfig {
   key: string;
 }
 
+export interface SyncLogEvent {
+  level: 'info' | 'error';
+  scope: 'restore' | 'sync';
+  message: string;
+  dbName: string;
+  nodeId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type SyncLogger = (event: SyncLogEvent) => void;
+
 export interface DBConfig {
   dbName: string;
   sqlitePath: string;
@@ -63,7 +74,9 @@ export interface DBConfig {
   encryption?: EncryptionConfig;
   retryConfig?: RetryConfig;
   autoSync?: boolean;
+  autoRestore?: boolean;
   restoreFromS3?: boolean;
+  logger?: SyncLogger;
 }
 
 export interface ChangeLogEntry {

@@ -2,7 +2,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import type Database from 'better-sqlite3';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
-import type { DBConfig, ModelSchema, SyncMetrics } from './types.js';
+import type { DBConfig, ModelSchema, SyncLogEvent, SyncMetrics } from './types.js';
 import { Repository } from './orm/repository.js';
 import { SyncEngine } from './sync/engine.js';
 import { S3Adapter } from './storage/s3-adapter.js';
@@ -17,6 +17,10 @@ const META_SCHEMA = `
   );
 `;
 
+type InternalDBConfig = DBConfig & {
+  __skipRestoreGuard?: boolean;
+};
+
 export class DB {
   private readonly sqliteDb: Database.Database;
   private readonly config: DBConfig;
@@ -25,15 +29,28 @@ export class DB {
   private readonly repos = new Map<string, Repository<BaseRecord>>();
 
   constructor(config: DBConfig) {
+    const internalConfig = config as InternalDBConfig;
     const dbName = config.dbName.trim();
     if (!dbName) {
       throw new Error('DBConfig.dbName is required');
     }
 
     this.config = {
-      ...config,
+      ...internalConfig,
       dbName,
     };
+
+    if (
+      DB.shouldAutoRestore(this.config) &&
+      this.config.s3Config &&
+      this.config.sqlitePath !== ':memory:' &&
+      !existsSync(this.config.sqlitePath) &&
+      !internalConfig.__skipRestoreGuard
+    ) {
+      throw new Error(
+        `Local database "${this.config.sqlitePath}" does not exist. Use await DB.open(...) when autoRestore is enabled.`
+      );
+    }
 
     if (this.config.sqlitePath !== ':memory:') {
       const dir = dirname(this.config.sqlitePath);
@@ -62,7 +79,7 @@ export class DB {
   /**
    * Async factory — use this instead of `new DB()` when you need S3 restore on startup.
    *
-   * - If `restoreFromS3: true` and the local SQLite file does not exist, it downloads
+   * - If `autoRestore: true` and the local SQLite file does not exist, it downloads
    *   the latest snapshot from S3 before opening the database.
    * - `dbName` is required and namespaces each logical database in S3.
    * - `nodeId` identifies the current local node within that logical database.
@@ -72,20 +89,39 @@ export class DB {
    *   dbName: 'my-app-db',
    *   sqlitePath: './data/app.sqlite',
    *   nodeId: 'server-1',
-   *   restoreFromS3: true,        // auto-restore if local file is missing
+   *   autoRestore: true,          // auto-restore if local file is missing
    *   s3Config: { bucket: '...', region: '...' },
    * });
    */
   static async open(config: DBConfig): Promise<DB> {
     if (
-      config.restoreFromS3 &&
+      DB.shouldAutoRestore(config) &&
       config.s3Config &&
       config.sqlitePath !== ':memory:' &&
       !existsSync(config.sqlitePath)
     ) {
-      await DB.restoreSnapshot(config);
+      DB.emitLog(config, {
+        level: 'info',
+        scope: 'restore',
+        message: `Local database missing at "${config.sqlitePath}". Attempting restore from S3.`,
+        dbName: config.dbName,
+      });
+      const restored = await DB.restoreSnapshot(config);
+      DB.emitLog(config, {
+        level: 'info',
+        scope: 'restore',
+        message: restored
+          ? `Restored database "${config.dbName}" from S3 snapshot.`
+          : `No remote snapshot found for database "${config.dbName}". Starting with a new local database.`,
+        dbName: config.dbName,
+      });
     }
-    return new DB(config);
+    return new DB(
+      {
+        ...(config as InternalDBConfig),
+        __skipRestoreGuard: true,
+      } as InternalDBConfig
+    );
   }
 
   private static async restoreSnapshot(config: DBConfig): Promise<boolean> {
@@ -107,6 +143,14 @@ export class DB {
     }
     writeFileSync(config.sqlitePath, data);
     return true;
+  }
+
+  private static emitLog(config: DBConfig, event: SyncLogEvent): void {
+    config.logger?.(event);
+  }
+
+  private static shouldAutoRestore(config: DBConfig): boolean {
+    return config.autoRestore === true || config.restoreFromS3 === true;
   }
 
   private getOrCreateNodeId(preferred?: string): string {

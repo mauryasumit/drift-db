@@ -151,4 +151,35 @@ describe('SyncEngine - no S3', () => {
       'DBConfig.dbName is required'
     );
   });
+
+  test('throws helpful error when autoRestore is used with new DB and file is missing', () => {
+    expect(
+      () =>
+        new DB({
+          dbName: 'restore-db',
+          sqlitePath: './tests/missing-restore.sqlite',
+          autoRestore: true,
+          s3Config: { bucket: 'bucket', region: 'us-east-1' },
+          autoSync: false,
+        })
+    ).toThrow('Use await DB.open(...) when autoRestore is enabled.');
+  });
+
+  test('emits sync logs through logger', async () => {
+    const logs: string[] = [];
+    const db = new DB({
+      dbName: 'log-db',
+      sqlitePath: ':memory:',
+      autoSync: false,
+      logger: (event) => logs.push(`${event.scope}:${event.message}`),
+    });
+
+    db.startSync();
+    db.stopSync();
+    await db.flush();
+    db.close();
+
+    expect(logs).toContain('sync:Started background sync engine.');
+    expect(logs).toContain('sync:Stopped background sync engine.');
+  });
 });

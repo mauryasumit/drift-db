@@ -17,6 +17,8 @@ export type {
   SyncMetrics,
   RetryConfig,
   EncryptionConfig,
+  SyncLogEvent,
+  SyncLogger,
   LogBatch,
   ChangeLogEntry,
   SyncJob,

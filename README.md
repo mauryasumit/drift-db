@@ -111,12 +111,16 @@ npm install driftdb
 ```typescript
 import { DB, Column } from 'driftdb';
 
-const db = new DB({
+const db = await DB.open({
   dbName: 'myapp-prod',
   sqlitePath: './data/myapp.sqlite',
+  autoRestore: true,
   s3Config: {
     bucket: 'my-app-backups',
     region: 'us-east-1',
+  },
+  logger: (event) => {
+    console.log(`[${event.scope}] ${event.message}`, event.metadata ?? '');
   },
 });
 
@@ -186,6 +190,8 @@ The main entry point. Manages the SQLite connection, ORM registrations, and sync
 ```typescript
 const db = new DB(config: DBConfig);
 ```
+
+Use `await DB.open(config)` when `autoRestore: true` is enabled and the local SQLite file may be missing on startup.
 
 | Method | Description |
 |---|---|
@@ -479,6 +485,8 @@ Current releases use a database-scoped layout so multiple logical databases can 
 - restore the latest snapshot after a local SQLite file is deleted
 - persist the local `nodeId` for that selected database so restarts reuse the same node identity
 
+If you want that restore to happen automatically on application restart, initialize with `await DB.open(...)` instead of `new DB(...)`.
+
 **Log batch example:**
 ```json
 {
@@ -685,6 +693,10 @@ interface DBConfig {
     baseDelayMs: number;       // Base delay for exponential backoff (default: 500)
     maxDelayMs: number;        // Max delay cap (default: 30000)
   };
+
+  autoRestore?: boolean;       // Restore latest snapshot on startup when using DB.open(...)
+  restoreFromS3?: boolean;     // Legacy alias for autoRestore
+  logger?: (event) => void;    // Optional hook for restore/sync logs
 }
 ```
 
@@ -727,6 +739,22 @@ await Users.create({ name: 'Alice', email: 'alice@example.com' });
 // Flush when ready
 await db.flush();
 ```
+
+### Restore deleted local DB on startup
+
+```typescript
+const db = await DB.open({
+  dbName: 'manual-sync-demo',
+  sqlitePath: './data.sqlite',
+  autoRestore: true,
+  s3Config: { bucket: 'my-bucket', region: 'us-east-1' },
+  logger: (event) => {
+    console.log(`[${event.scope}] ${event.message}`, event.metadata ?? '');
+  },
+});
+```
+
+If `./data.sqlite` was deleted locally, DriftDB checks S3 for the latest snapshot for `manual-sync-demo`, restores it, and logs the restore activity through `logger`.
 
 ### Monitoring sync metrics
 
