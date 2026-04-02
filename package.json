@@ -1,6 +1,6 @@
 {
-  "name": "driftdb",
-  "version": "2.0.0",
+  "name": "@mohoit/driftdb",
+  "version": "1.0.0",
   "description": "Local-first SQLite database with automatic S3 sync — offline-first, no infrastructure required",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,10 +17,10 @@
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "prebuild": "npm run clean",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build",
-    "publish:patch": "npm version patch && npm publish",
-    "publish:minor": "npm version minor && npm publish",
-    "publish:major": "npm version major && npm publish",
-    "publish:dry": "npm publish --dry-run"
+    "publish:patch": "npm version patch && npm publish --access public",
+    "publish:minor": "npm version minor && npm publish --access public",
+    "publish:major": "npm version major && npm publish --access public",
+    "publish:dry": "npm publish --dry-run --access public"
   },
   "keywords": [
     "sqlite",
