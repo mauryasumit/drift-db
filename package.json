@@ -1,6 +1,6 @@
 {
-  "name": "driftdb",
-  "version": "4.0.0",
+  "name": "@mauryasumit/driftdb",
+  "version": "3.0.0",
   "description": "Local-first SQLite database with automatic S3 sync — offline-first, no infrastructure required",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
