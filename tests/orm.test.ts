@@ -5,7 +5,7 @@ describe('Repository - define API', () => {
   let db: DB;
 
   beforeEach(() => {
-    db = new DB({ sqlitePath: ':memory:', autoSync: false });
+    db = new DB({ dbName: 'test-db', sqlitePath: ':memory:', autoSync: false });
   });
 
   afterEach(() => {
@@ -143,7 +143,7 @@ describe('Model - class-based API', () => {
   let db: DB;
 
   beforeEach(() => {
-    db = new DB({ sqlitePath: ':memory:', autoSync: false });
+    db = new DB({ dbName: 'test-db', sqlitePath: ':memory:', autoSync: false });
   });
 
   afterEach(() => {
@@ -194,13 +194,13 @@ describe('Model - class-based API', () => {
 
 describe('DB - utility methods', () => {
   test('integrityCheck returns true for healthy DB', () => {
-    const db = new DB({ sqlitePath: ':memory:', autoSync: false });
+    const db = new DB({ dbName: 'test-db', sqlitePath: ':memory:', autoSync: false });
     expect(db.integrityCheck()).toBe(true);
     db.close();
   });
 
   test('transaction rolls back on error', async () => {
-    const db = new DB({ sqlitePath: ':memory:', autoSync: false });
+    const db = new DB({ dbName: 'test-db', sqlitePath: ':memory:', autoSync: false });
     const Items = db.define('items', { name: { type: 'TEXT' } });
     await Items.create({ name: 'before' });
 

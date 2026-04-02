@@ -9,6 +9,7 @@ import type { S3UploadOptions } from '../storage/s3-adapter.js';
 export class SnapshotManager {
   private readonly db: Database.Database;
   private readonly s3: S3Adapter;
+  private readonly dbName: string;
   private readonly nodeId: string;
   private readonly sqlitePath: string;
   private readonly uploadOptions: S3UploadOptions;
@@ -16,12 +17,14 @@ export class SnapshotManager {
   constructor(
     db: Database.Database,
     s3: S3Adapter,
+    dbName: string,
     nodeId: string,
     sqlitePath: string,
     uploadOptions: S3UploadOptions
   ) {
     this.db = db;
     this.s3 = s3;
+    this.dbName = dbName;
     this.nodeId = nodeId;
     this.sqlitePath = sqlitePath;
     this.uploadOptions = uploadOptions;
@@ -37,7 +40,7 @@ export class SnapshotManager {
       if (this.sqlitePath === ':memory:') {
         const backup = this.db.serialize();
         await this.s3.upload(
-          this.s3.snapshotKey(this.nodeId, timestamp),
+          this.s3.snapshotKey(this.dbName, this.nodeId, timestamp),
           Buffer.from(backup),
           this.uploadOptions
         );
@@ -45,13 +48,13 @@ export class SnapshotManager {
         copyFileSync(this.sqlitePath, tempPath);
         const data = readFileSync(tempPath);
         await this.s3.upload(
-          this.s3.snapshotKey(this.nodeId, timestamp),
+          this.s3.snapshotKey(this.dbName, this.nodeId, timestamp),
           data,
           this.uploadOptions
         );
       }
 
-      const key = this.s3.snapshotKey(this.nodeId, timestamp);
+      const key = this.s3.snapshotKey(this.dbName, this.nodeId, timestamp);
       return { key, timestamp };
     } finally {
       if (existsSync(tempPath)) {
@@ -61,7 +64,7 @@ export class SnapshotManager {
   }
 
   async restoreLatest(): Promise<boolean> {
-    const manifest = await this.s3.getManifest(this.nodeId);
+    const manifest = await this.s3.getManifest(this.dbName);
     if (!manifest?.latestSnapshotKey) return false;
 
     const data = await this.s3.download(manifest.latestSnapshotKey, this.uploadOptions);

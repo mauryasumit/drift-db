@@ -112,6 +112,7 @@ npm install driftdb
 import { DB, Column } from 'driftdb';
 
 const db = new DB({
+  dbName: 'myapp-prod',
   sqlitePath: './data/myapp.sqlite',
   s3Config: {
     bucket: 'my-app-backups',
@@ -154,7 +155,7 @@ db.close();
 import { DB, Model, Column } from 'driftdb';
 import type { ModelSchema } from 'driftdb';
 
-const db = new DB({ sqlitePath: './data.sqlite' });
+const db = new DB({ dbName: 'users-db', sqlitePath: './data.sqlite' });
 
 class User extends Model {
   static tableName = 'users';
@@ -431,7 +432,7 @@ const schema = {
    - Serializes them into a compressed (optionally encrypted) JSON batch
    - Uploads the batch to S3
    - Marks those entries as synced in SQLite
-   - Updates the node's `manifest.json` on S3
+   - Updates the database manifest on S3
    - If `latestSequence % snapshotEveryNLogs === 0`, enqueues a snapshot job
 
 3. **On crash/restart**, the sync engine calls `resetStuck()` on the queue, which re-queues any jobs that were "processing" when the process died. Since S3 keys are deterministic, re-uploading is safe.
@@ -452,13 +453,31 @@ const schema = {
 **`manifest.json` example:**
 ```json
 {
+  "dbName": "crm-prod",
   "nodeId": "a1b2c3d4e5f6",
-  "latestSnapshotKey": "nodes/a1b2c3/snapshots/1704067200000.sqlite",
+  "latestSnapshotKey": "databases/crm-prod/nodes/a1b2c3d4e5f6/snapshots/1704067200000.sqlite",
   "latestSnapshotTimestamp": 1704067200000,
   "latestLogSequence": 1500,
   "updatedAt": 1704070800000
 }
 ```
+
+Current releases use a database-scoped layout so multiple logical databases can share one bucket safely:
+
+```text
+{prefix}/
+  databases/{dbName}/
+    manifest.json
+    nodes/{nodeId}/
+      logs/
+      snapshots/
+```
+
+`dbName` is required in `DBConfig`. DriftDB uses it to:
+
+- isolate each application database under `databases/{dbName}`
+- restore the latest snapshot after a local SQLite file is deleted
+- persist the local `nodeId` for that selected database so restarts reuse the same node identity
 
 **Log batch example:**
 ```json
@@ -508,6 +527,7 @@ Enabled by default (`compression: true`). Uses Node.js built-in `zlib` (gzip, `Z
 
 ```typescript
 const db = new DB({
+  dbName: 'myapp-prod',
   sqlitePath: './data.sqlite',
   s3Config: { bucket: 'my-bucket', region: 'us-east-1' },
   compression: true,   // default: true
@@ -520,6 +540,7 @@ Uses AES-256-GCM via Node.js built-in `crypto`. Encryption happens **after** com
 
 ```typescript
 const db = new DB({
+  dbName: 'myapp-prod',
   sqlitePath: './data.sqlite',
   s3Config: { bucket: 'my-bucket', region: 'us-east-1' },
   encryption: {
@@ -560,6 +581,7 @@ attempt 5: 8000ms delay (capped at maxDelayMs)
 Configure via `retryConfig`:
 ```typescript
 const db = new DB({
+  dbName: 'myapp-prod',
   retryConfig: {
     maxRetries: 5,
     baseDelayMs: 500,
@@ -577,7 +599,7 @@ const db = new DB({
 ### Verifying DB health on startup
 
 ```typescript
-const db = new DB({ sqlitePath: './data.sqlite' });
+const db = new DB({ dbName: 'myapp-prod', sqlitePath: './data.sqlite' });
 
 if (!db.integrityCheck()) {
   console.error('DB corrupted — restore from S3 snapshot');
@@ -634,6 +656,7 @@ db.transaction(() => {
 
 ```typescript
 interface DBConfig {
+  dbName: string;              // Required logical database name used for S3 isolation/restores
   sqlitePath: string;          // Path to SQLite file, or ':memory:'
 
   s3Config?: {
@@ -646,7 +669,7 @@ interface DBConfig {
     forcePathStyle?: boolean;  // Required for MinIO (default: true if endpoint set)
   };
 
-  nodeId?: string;             // Stable ID for this instance (auto-generated if omitted)
+  nodeId?: string;             // Stable ID for this local node within the selected dbName
   autoSync?: boolean;          // Start sync automatically (default: true if s3Config set)
   syncIntervalMs?: number;     // How often to sync (default: 5000ms)
   snapshotEveryNLogs?: number; // Take snapshot every N log entries (default: 1000)
@@ -673,6 +696,7 @@ interface DBConfig {
 
 ```typescript
 const db = new DB({
+  dbName: 'local-dev',
   sqlitePath: './local.sqlite',
   s3Config: {
     bucket: 'local-test',
@@ -691,6 +715,7 @@ Disable auto-sync and flush on demand:
 
 ```typescript
 const db = new DB({
+  dbName: 'manual-sync-demo',
   sqlitePath: './data.sqlite',
   s3Config: { bucket: 'my-bucket', region: 'us-east-1' },
   autoSync: false,
@@ -722,7 +747,7 @@ console.log({
 ### Raw SQL access
 
 ```typescript
-const db = new DB({ sqlitePath: './data.sqlite' });
+const db = new DB({ dbName: 'analytics', sqlitePath: './data.sqlite' });
 
 // Via repository
 const Users = db.define('users', schema);

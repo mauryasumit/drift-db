@@ -159,23 +159,23 @@ export class S3Adapter {
     return keys;
   }
 
-  async putManifest(nodeId: string, manifest: SyncManifest): Promise<void> {
+  async putManifest(dbName: string, manifest: SyncManifest): Promise<void> {
     const data = Buffer.from(JSON.stringify(manifest), 'utf8');
-    await this.upload(`nodes/${nodeId}/manifest.json`, data);
+    await this.upload(`databases/${dbName}/manifest.json`, data);
   }
 
-  async getManifest(nodeId: string): Promise<SyncManifest | null> {
-    const path = `nodes/${nodeId}/manifest.json`;
+  async getManifest(dbName: string): Promise<SyncManifest | null> {
+    const path = `databases/${dbName}/manifest.json`;
     if (!(await this.exists(path))) return null;
     const data = await this.download(path);
     return JSON.parse(data.toString('utf8')) as SyncManifest;
   }
 
-  logKey(nodeId: string, fromSeq: number, toSeq: number): string {
-    return `nodes/${nodeId}/logs/${String(fromSeq).padStart(12, '0')}-${String(toSeq).padStart(12, '0')}.json`;
+  logKey(dbName: string, nodeId: string, fromSeq: number, toSeq: number): string {
+    return `databases/${dbName}/nodes/${nodeId}/logs/${String(fromSeq).padStart(12, '0')}-${String(toSeq).padStart(12, '0')}.json`;
   }
 
-  snapshotKey(nodeId: string, timestamp: number): string {
-    return `nodes/${nodeId}/snapshots/${timestamp}.sqlite`;
+  snapshotKey(dbName: string, nodeId: string, timestamp: number): string {
+    return `databases/${dbName}/nodes/${nodeId}/snapshots/${timestamp}.sqlite`;
   }
 }

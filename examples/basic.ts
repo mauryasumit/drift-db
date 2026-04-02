@@ -3,6 +3,7 @@ import type { ModelSchema } from '../src/index';
 
 async function schemaBasedExample() {
   const db = new DB({
+    dbName: 'myapp',
     sqlitePath: './data/myapp.sqlite',
     s3Config: {
       bucket: 'my-app-data',
@@ -57,6 +58,7 @@ async function schemaBasedExample() {
 
 async function classBasedExample() {
   const db = new DB({
+    dbName: 'posts-demo',
     sqlitePath: ':memory:',
     autoSync: false,
   });
@@ -109,6 +111,7 @@ async function classBasedExample() {
 
 async function failureRecoveryExample() {
   const db = new DB({
+    dbName: 'recovery-demo',
     sqlitePath: ':memory:',
     s3Config: {
       bucket: 'recovery-bucket',

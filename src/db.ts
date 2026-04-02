@@ -25,16 +25,24 @@ export class DB {
   private readonly repos = new Map<string, Repository<BaseRecord>>();
 
   constructor(config: DBConfig) {
-    this.config = config;
+    const dbName = config.dbName.trim();
+    if (!dbName) {
+      throw new Error('DBConfig.dbName is required');
+    }
 
-    if (config.sqlitePath !== ':memory:') {
-      const dir = dirname(config.sqlitePath);
+    this.config = {
+      ...config,
+      dbName,
+    };
+
+    if (this.config.sqlitePath !== ':memory:') {
+      const dir = dirname(this.config.sqlitePath);
       if (dir && dir !== '.') {
         mkdirSync(dir, { recursive: true });
       }
     }
 
-    this.sqliteDb = new BetterSqlite3(config.sqlitePath);
+    this.sqliteDb = new BetterSqlite3(this.config.sqlitePath);
     this.sqliteDb.pragma('journal_mode = WAL');
     this.sqliteDb.pragma('synchronous = NORMAL');
     this.sqliteDb.pragma('foreign_keys = ON');
@@ -43,10 +51,10 @@ export class DB {
 
     this.sqliteDb.exec(META_SCHEMA);
 
-    this.nodeId = this.getOrCreateNodeId(config.nodeId);
-    this.syncEngine = new SyncEngine(this.sqliteDb, this.nodeId, config);
+    this.nodeId = this.getOrCreateNodeId(this.config.nodeId);
+    this.syncEngine = new SyncEngine(this.sqliteDb, this.nodeId, this.config);
 
-    if (config.autoSync !== false && config.s3Config) {
+    if (this.config.autoSync !== false && this.config.s3Config) {
       this.syncEngine.start();
     }
   }
@@ -56,12 +64,14 @@ export class DB {
    *
    * - If `restoreFromS3: true` and the local SQLite file does not exist, it downloads
    *   the latest snapshot from S3 before opening the database.
-   * - Use `nodeId` to namespace each application independently in S3.
+   * - `dbName` is required and namespaces each logical database in S3.
+   * - `nodeId` identifies the current local node within that logical database.
    *
    * @example
    * const db = await DB.open({
+   *   dbName: 'my-app-db',
    *   sqlitePath: './data/app.sqlite',
-   *   nodeId: 'my-app',          // per-application isolation
+   *   nodeId: 'server-1',
    *   restoreFromS3: true,        // auto-restore if local file is missing
    *   s3Config: { bucket: '...', region: '...' },
    * });
@@ -80,13 +90,12 @@ export class DB {
 
   private static async restoreSnapshot(config: DBConfig): Promise<boolean> {
     const s3 = new S3Adapter(config.s3Config!);
-    const nodeId = config.nodeId ?? 'default';
     const uploadOptions = {
       compress: config.compression !== false,
       encryptionKey: config.encryption?.key,
     };
 
-    const manifest = await s3.getManifest(nodeId);
+    const manifest = await s3.getManifest(config.dbName);
     if (!manifest?.latestSnapshotKey) {
       return false;
     }
@@ -101,23 +110,25 @@ export class DB {
   }
 
   private getOrCreateNodeId(preferred?: string): string {
+    const metaKey = `nodeId:${this.config.dbName}`;
+
     if (preferred) {
       this.sqliteDb
-        .prepare(`INSERT OR REPLACE INTO _driftdb_meta (key, value) VALUES ('nodeId', ?)`)
-        .run(preferred);
+        .prepare(`INSERT OR REPLACE INTO _driftdb_meta (key, value) VALUES (?, ?)`)
+        .run(metaKey, preferred);
       return preferred;
     }
 
     const row = this.sqliteDb
-      .prepare(`SELECT value FROM _driftdb_meta WHERE key = 'nodeId'`)
-      .get() as { value: string } | undefined;
+      .prepare(`SELECT value FROM _driftdb_meta WHERE key = ? OR key = 'nodeId' ORDER BY CASE WHEN key = ? THEN 0 ELSE 1 END LIMIT 1`)
+      .get(metaKey, metaKey) as { value: string } | undefined;
 
     if (row) return row.value;
 
     const id = generateNodeId();
     this.sqliteDb
-      .prepare(`INSERT INTO _driftdb_meta (key, value) VALUES ('nodeId', ?)`)
-      .run(id);
+      .prepare(`INSERT INTO _driftdb_meta (key, value) VALUES (?, ?)`)
+      .run(metaKey, id);
     return id;
   }
 

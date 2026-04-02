@@ -52,6 +52,7 @@ export class SyncEngine {
       this.snapshotManager = new SnapshotManager(
         db,
         this.s3,
+        config.dbName,
         nodeId,
         config.sqlitePath,
         uploadOptions
@@ -135,7 +136,12 @@ export class SyncEngine {
     if (pending.length === 0) return;
 
     const batch = this.changeLog.buildBatch(pending);
-    const s3Key = this.s3!.logKey(this.nodeId, batch.fromSequence, batch.toSequence);
+    const s3Key = this.s3!.logKey(
+      this.config.dbName,
+      this.nodeId,
+      batch.fromSequence,
+      batch.toSequence
+    );
 
     const alreadyQueued = this.queue.hasPendingOfType('upload_log');
     if (!alreadyQueued) {
@@ -174,12 +180,13 @@ export class SyncEngine {
             await this.s3!.upload(p.s3Key, batchBuffer, uploadOptions);
             this.changeLog.markSynced(p.fromSequence, p.toSequence);
 
-            const manifest = await this.s3!.getManifest(this.nodeId);
+            const manifest = await this.s3!.getManifest(this.config.dbName);
             const latestSeq = Math.max(
               manifest?.latestLogSequence ?? 0,
               p.toSequence
             );
-            await this.s3!.putManifest(this.nodeId, {
+            await this.s3!.putManifest(this.config.dbName, {
+              dbName: this.config.dbName,
               nodeId: this.nodeId,
               latestSnapshotKey: manifest?.latestSnapshotKey ?? null,
               latestSnapshotTimestamp: manifest?.latestSnapshotTimestamp ?? null,
@@ -195,8 +202,9 @@ export class SyncEngine {
             const p = JSON.parse(job.payload) as UploadSnapshotPayload;
             if (this.snapshotManager) {
               const { key, timestamp } = await this.snapshotManager.takeAndUpload();
-              const manifest = await this.s3!.getManifest(this.nodeId);
-              await this.s3!.putManifest(this.nodeId, {
+              const manifest = await this.s3!.getManifest(this.config.dbName);
+              await this.s3!.putManifest(this.config.dbName, {
+                dbName: this.config.dbName,
                 nodeId: this.nodeId,
                 latestSnapshotKey: key,
                 latestSnapshotTimestamp: timestamp,
@@ -225,7 +233,7 @@ export class SyncEngine {
       if (!this.queue.hasPendingOfType('upload_snapshot')) {
         const payload: UploadSnapshotPayload = {
           timestamp: Date.now(),
-          s3Key: this.s3!.snapshotKey(this.nodeId, Date.now()),
+          s3Key: this.s3!.snapshotKey(this.config.dbName, this.nodeId, Date.now()),
           dbPath: this.config.sqlitePath,
         };
         this.queue.enqueue('upload_snapshot', payload);
@@ -236,8 +244,9 @@ export class SyncEngine {
   async triggerSnapshot(): Promise<void> {
     if (!this.snapshotManager || !this.s3) return;
     const { key, timestamp } = await this.snapshotManager.takeAndUpload();
-    const manifest = await this.s3.getManifest(this.nodeId);
-    await this.s3.putManifest(this.nodeId, {
+    const manifest = await this.s3.getManifest(this.config.dbName);
+    await this.s3.putManifest(this.config.dbName, {
+      dbName: this.config.dbName,
       nodeId: this.nodeId,
       latestSnapshotKey: key,
       latestSnapshotTimestamp: timestamp,

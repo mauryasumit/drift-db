@@ -1,4 +1,5 @@
 import BetterSqlite3 from 'better-sqlite3';
+import { existsSync, unlinkSync } from 'fs';
 import { ChangeLog } from '../src/sync/change-log';
 import { DB } from '../src/db';
 
@@ -97,7 +98,7 @@ describe('ChangeLog', () => {
 
 describe('SyncEngine - no S3', () => {
   test('getMetrics returns correct structure', () => {
-    const db = new DB({ sqlitePath: ':memory:', autoSync: false });
+    const db = new DB({ dbName: 'test-db', sqlitePath: ':memory:', autoSync: false });
     const metrics = db.getMetrics();
 
     expect(metrics).toHaveProperty('isRunning');
@@ -109,14 +110,14 @@ describe('SyncEngine - no S3', () => {
   });
 
   test('flush is a no-op when no S3 configured', async () => {
-    const db = new DB({ sqlitePath: ':memory:', autoSync: false });
+    const db = new DB({ dbName: 'test-db', sqlitePath: ':memory:', autoSync: false });
 
     await expect(db.flush()).resolves.not.toThrow();
     db.close();
   });
 
   test('changes get logged in change log', async () => {
-    const db = new DB({ sqlitePath: ':memory:', autoSync: false });
+    const db = new DB({ dbName: 'test-db', sqlitePath: ':memory:', autoSync: false });
 
     const Users = db.define('users', { name: { type: 'TEXT' } });
     await Users.create({ name: 'Test' });
@@ -124,5 +125,30 @@ describe('SyncEngine - no S3', () => {
     const metrics = db.getMetrics();
     expect(metrics.pendingChanges).toBe(1);
     db.close();
+  });
+
+  test('reuses the same node id when reopening the same local db', () => {
+    const path = './tests/tmp-reopen.sqlite';
+    if (existsSync(path)) {
+      unlinkSync(path);
+    }
+
+    const first = new DB({ dbName: 'reopen-db', sqlitePath: path, autoSync: false });
+    const firstNodeId = first.getNodeId();
+    first.close();
+
+    const second = new DB({ dbName: 'reopen-db', sqlitePath: path, autoSync: false });
+    expect(second.getNodeId()).toBe(firstNodeId);
+    second.close();
+
+    if (existsSync(path)) {
+      unlinkSync(path);
+    }
+  });
+
+  test('throws when dbName is missing', () => {
+    expect(() => new DB({ dbName: '   ', sqlitePath: ':memory:', autoSync: false })).toThrow(
+      'DBConfig.dbName is required'
+    );
   });
 });

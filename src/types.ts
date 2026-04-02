@@ -52,6 +52,7 @@ export interface EncryptionConfig {
 }
 
 export interface DBConfig {
+  dbName: string;
   sqlitePath: string;
   s3Config?: S3Config;
   nodeId?: string;
@@ -101,6 +102,7 @@ export interface SyncJob {
 }
 
 export interface SyncManifest {
+  dbName: string;
   nodeId: string;
   latestSnapshotKey: string | null;
   latestSnapshotTimestamp: number | null;
