@@ -17,11 +17,14 @@ export type RecordOf<S extends ModelSchema> = BaseRecord & {
     : string;
 };
 
+type SqliteBindable = string | number | bigint | Buffer | null;
+
 export class Repository<T extends BaseRecord> {
   private readonly db: Database.Database;
   private readonly tableName: string;
   private readonly schema: ModelSchema;
   private readonly changeLog: ChangeLog | null;
+  private readonly booleanColumns: Set<string>;
 
   constructor(
     db: Database.Database,
@@ -33,12 +36,39 @@ export class Repository<T extends BaseRecord> {
     this.tableName = tableName;
     this.schema = normalizeSchema(schema);
     this.changeLog = changeLog;
+    this.booleanColumns = new Set(
+      Object.entries(this.schema)
+        .filter(([, def]) => def.type === 'BOOLEAN')
+        .map(([key]) => key)
+    );
     this.initTable();
   }
 
   private initTable(): void {
     const sql = buildCreateTableSQL(this.tableName, this.schema);
     this.db.exec(sql);
+  }
+
+  private serialize(key: string, value: unknown): SqliteBindable {
+    if (value === undefined || value === null) return null;
+    if (this.booleanColumns.has(key) && typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    if (typeof value === 'object' && !Buffer.isBuffer(value)) {
+      return JSON.stringify(value);
+    }
+    return value as SqliteBindable;
+  }
+
+  private deserializeRow(row: Record<string, unknown>): T {
+    const out: Record<string, unknown> = { ...row };
+    for (const col of this.booleanColumns) {
+      if (col in out) {
+        out[col] = out[col] === 1 || out[col] === true;
+      }
+    }
+    return out as T;
   }
 
   async create(data: Partial<Omit<T, 'id' | 'createdAt' | 'updatedAt'>>): Promise<T> {
@@ -49,7 +79,7 @@ export class Repository<T extends BaseRecord> {
     const keys = Object.keys(record);
     const placeholders = keys.map(() => '?').join(', ');
     const cols = keys.map((k) => `"${k}"`).join(', ');
-    const values = keys.map((k) => (record as Record<string, unknown>)[k]);
+    const values = keys.map((k) => this.serialize(k, (record as Record<string, unknown>)[k]));
 
     this.db
       .prepare(`INSERT INTO "${this.tableName}" (${cols}) VALUES (${placeholders})`)
@@ -57,25 +87,26 @@ export class Repository<T extends BaseRecord> {
 
     this.changeLog?.append(this.tableName, 'insert', record as Record<string, unknown>);
 
-    return record;
+    return this.deserializeRow(record as Record<string, unknown>);
   }
 
   async findById(id: string): Promise<T | null> {
     const row = this.db
       .prepare(`SELECT * FROM "${this.tableName}" WHERE id = ?`)
-      .get(id) as T | undefined;
-    return row ?? null;
+      .get(id) as Record<string, unknown> | undefined;
+    return row ? this.deserializeRow(row) : null;
   }
 
   async findOne(where: WhereClause<T>): Promise<T | null> {
     const { sql, params } = buildSelectSQL<T>(this.tableName, { where, limit: 1 });
-    const row = this.db.prepare(sql).get(...params) as T | undefined;
-    return row ?? null;
+    const row = this.db.prepare(sql).get(...params) as Record<string, unknown> | undefined;
+    return row ? this.deserializeRow(row) : null;
   }
 
   async find(options: FindOptions<T> = {}): Promise<T[]> {
     const { sql, params } = buildSelectSQL<T>(this.tableName, options);
-    return this.db.prepare(sql).all(...params) as T[];
+    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    return rows.map((r) => this.deserializeRow(r));
   }
 
   async filter(where: WhereClause<T> = {}, options: Omit<FindOptions<T>, 'where'> = {}): Promise<T[]> {
@@ -89,7 +120,7 @@ export class Repository<T extends BaseRecord> {
     const setCols = Object.keys(updateData)
       .map((k) => `"${k}" = ?`)
       .join(', ');
-    const setValues = Object.values(updateData);
+    const setValues = Object.entries(updateData).map(([k, v]) => this.serialize(k, v));
 
     const { sql: whereSQL, params: whereParams } = buildWhereClause(where);
     const sql = `UPDATE "${this.tableName}" SET ${setCols} ${whereSQL}`;
