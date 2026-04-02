@@ -62,6 +62,7 @@ export interface DBConfig {
   encryption?: EncryptionConfig;
   retryConfig?: RetryConfig;
   autoSync?: boolean;
+  restoreFromS3?: boolean;
 }
 
 export interface ChangeLogEntry {

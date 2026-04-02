@@ -1,10 +1,11 @@
 import BetterSqlite3 from 'better-sqlite3';
 import type Database from 'better-sqlite3';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import type { DBConfig, ModelSchema, SyncMetrics } from './types.js';
 import { Repository } from './orm/repository.js';
 import { SyncEngine } from './sync/engine.js';
+import { S3Adapter } from './storage/s3-adapter.js';
 import { generateNodeId } from './utils/id.js';
 import type { Model, ModelStatic } from './orm/model.js';
 import type { BaseRecord } from './types.js';
@@ -48,6 +49,55 @@ export class DB {
     if (config.autoSync !== false && config.s3Config) {
       this.syncEngine.start();
     }
+  }
+
+  /**
+   * Async factory — use this instead of `new DB()` when you need S3 restore on startup.
+   *
+   * - If `restoreFromS3: true` and the local SQLite file does not exist, it downloads
+   *   the latest snapshot from S3 before opening the database.
+   * - Use `nodeId` to namespace each application independently in S3.
+   *
+   * @example
+   * const db = await DB.open({
+   *   sqlitePath: './data/app.sqlite',
+   *   nodeId: 'my-app',          // per-application isolation
+   *   restoreFromS3: true,        // auto-restore if local file is missing
+   *   s3Config: { bucket: '...', region: '...' },
+   * });
+   */
+  static async open(config: DBConfig): Promise<DB> {
+    if (
+      config.restoreFromS3 &&
+      config.s3Config &&
+      config.sqlitePath !== ':memory:' &&
+      !existsSync(config.sqlitePath)
+    ) {
+      await DB.restoreSnapshot(config);
+    }
+    return new DB(config);
+  }
+
+  private static async restoreSnapshot(config: DBConfig): Promise<boolean> {
+    const s3 = new S3Adapter(config.s3Config!);
+    const nodeId = config.nodeId ?? 'default';
+    const uploadOptions = {
+      compress: config.compression !== false,
+      encryptionKey: config.encryption?.key,
+    };
+
+    const manifest = await s3.getManifest(nodeId);
+    if (!manifest?.latestSnapshotKey) {
+      return false;
+    }
+
+    const data = await s3.download(manifest.latestSnapshotKey, uploadOptions);
+    const dir = dirname(config.sqlitePath);
+    if (dir && dir !== '.') {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(config.sqlitePath, data);
+    return true;
   }
 
   private getOrCreateNodeId(preferred?: string): string {
