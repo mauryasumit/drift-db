@@ -14,7 +14,13 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .ts",
-    "prepublishOnly": "npm run build"
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run clean",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build",
+    "publish:patch": "npm version patch && npm publish",
+    "publish:minor": "npm version minor && npm publish",
+    "publish:major": "npm version major && npm publish",
+    "publish:dry": "npm publish --dry-run"
   },
   "keywords": [
     "sqlite",
