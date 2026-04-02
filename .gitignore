@@ -77,3 +77,4 @@ credentials
 # Zencoder / Zenflow
 .zencoder/
 .zenflow/
+.zenflow-attachments/
