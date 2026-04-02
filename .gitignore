@@ -73,3 +73,7 @@ temp/
 # AWS / Cloud credentials (safety net)
 .aws/
 credentials
+
+# Zencoder / Zenflow
+.zencoder/
+.zenflow/
