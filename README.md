@@ -95,7 +95,7 @@ DriftDB is ideal for:
 ## Installation
 
 ```bash
-npm install driftdb
+npm install @mauryasumit/driftdb
 ```
 
 **Requirements:**
@@ -109,7 +109,7 @@ npm install driftdb
 ### Schema-based API (recommended)
 
 ```typescript
-import { DB, Column } from 'driftdb';
+import { DB, Column } from '@mauryasumit/driftdb';
 
 const db = await DB.open({
   dbName: 'myapp-prod',
@@ -156,8 +156,8 @@ db.close();
 ### Class-based API
 
 ```typescript
-import { DB, Model, Column } from 'driftdb';
-import type { ModelSchema } from 'driftdb';
+import { DB, Model, Column } from '@mauryasumit/driftdb';
+import type { ModelSchema } from '@mauryasumit/driftdb';
 
 const db = new DB({ dbName: 'users-db', sqlitePath: './data.sqlite' });
 
@@ -397,7 +397,7 @@ await Post.upsert({ title: 'Hello' }, { title: 'Hello', views: 0 });
 The `Column` builder provides a fluent API for defining schemas:
 
 ```typescript
-import { Column } from 'driftdb';
+import { Column } from '@mauryasumit/driftdb';
 
 const schema = {
   name:      Column.text().required().build(),
